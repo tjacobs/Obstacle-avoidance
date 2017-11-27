@@ -15,6 +15,8 @@ https://d17h27t6h515a5.cloudfront.net/topher/2017/February/58ae4594_mac-sim.app/
 
 https://d17h27t6h515a5.cloudfront.net/topher/2017/February/58ae4419_windows-sim/windows-sim.zip
 
+https://github.com/udacity/self-driving-car-sim/
+
 ## Train
 
 To train detect_model.h5, run:
