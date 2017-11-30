@@ -3,7 +3,7 @@ import numpy as np
 from scipy.misc import imsave
 from keras.preprocessing.image import ImageDataGenerator
 from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
-from model2 import Model, image_width, image_height
+from model2 import WaypointsModel, image_width, image_height
 import keras
 
 # Start
@@ -14,11 +14,11 @@ train_data_dir = 'train'
 validation_data_dir = 'validation'
 nb_train_samples = 1000
 nb_validation_samples = 100
-epochs = 10
+epochs = 3
 batch_size = 30
 
 # Compile
-model = Model()
+model = WaypointsModel()
 model.compile(loss='categorical_crossentropy',
               optimizer='adam',
               metrics=['accuracy'])
@@ -54,25 +54,35 @@ validation_generator = validation_datagen.flow_from_directory(
     batch_size=batch_size,
     class_mode='categorical')
 
-'''
+def batch_generator():
+    while True:
+        image, category = train_generator.next()
+        yield(image, [category, (np.array([[0,0,0,0,0]]*category.shape[0]))])
+
+def batch_val_generator():
+    while True:
+        image, category = validation_generator.next()
+        yield(image, [category, (np.array([[0,0,0,0,0]]*category.shape[0]))])
+
 i = 0
-for img in train_generator:
-    imsave('img' + str(i) + '.jpg', img[0][0]) # First sample of the batch, first image
+for sample in batch_generator():
+#    print(sample)
+#    imsave('img' + str(i) + '.jpg', sample[0][0]) # First sample of the batch, first image
     i += 1
-    if i > 4:
+    if i > 2:
         break
-'''
+
 
 # Callbacks
 checkpoint = ModelCheckpoint(filepath='./model_checkpoint.h5', verbose=1, save_best_only=True)
 lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1), cooldown=0, patience=5, min_lr=0.5e-6)
-callbacks = [checkpoint, lr_reducer]
+callbacks = []#[checkpoint, lr_reducer]
 
 # Train
 model.fit_generator(
-    train_generator,
+    batch_generator(),
     steps_per_epoch = nb_train_samples // batch_size,
-    validation_data = validation_generator,
+    validation_data = batch_val_generator(),
     validation_steps = nb_validation_samples // batch_size,
     epochs=epochs,
     callbacks=callbacks)
