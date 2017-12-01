@@ -184,10 +184,14 @@ std::vector<Tensor> run_image(Session* session, const string& jpg) {
   const Tensor& resized_tensor = resized_tensors[0];
 
   // Actually run the image through the model.
-  string input_layer = "cropping2d_1_input";
-  string output_layer = "output_0";
+  string input_layer = "main_input";
+  string output_layer0 = "output_0";
+  string output_layer1 = "output_1";
   std::vector<Tensor> outputs;
-  status = session->Run({{input_layer, resized_tensor}}, {output_layer}, {}, &outputs);
+  status = session->Run({{input_layer, resized_tensor}}, {output_layer0, output_layer1}, {}, &outputs);
+  if (!status.ok()) {
+    LOG(ERROR) << status;
+  }
 
   return outputs;
 }
@@ -320,35 +324,24 @@ int main() {
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
 
-
-          int car_position = (int)-px;
-
-          // Move waypoints around obstacle
-          if( car_position > 70 && car_position < 95 ) {
-            ptsx[0] -= 2;
-            ptsx[1] -= 4;
-            ptsx[2] -= 6;
-            ptsx[3] -= 6;
-            ptsx[4] -= 4;
-            ptsx[5] -= 2;
-          }
-
           // Get image
           const string imgString = base64_decode(j[1]["image"]);
-//          printf("Image: %s", imgString.c_str());
 
-//          image = Image.open(BytesIO(base64.b64decode(imgString)))
-//          image_array = np.asarray(image)
-//          steering_angle = float(model.predict(image_array[None, :, :, :], batch_size=1))
-
-          // Run a clear image
+          // Run the image
           std::vector<Tensor> outputs = run_image(session, imgString);
-          std::cout << outputs[0].DebugString() << "\n";
-//          std::cout << outputs[0] << "  " << outputs[0] << "\n";
 
-          // Run obstacle image
-//          std::vector<Tensor> outputs2 = run_image(session, "image2.jpg");
-//          std::cout << outputs2[0].DebugString() << "\n";
+          // Print output
+          std::cout << outputs[1].flat<float>()(3) << "\n";
+
+          float wp = outputs[1].flat<float>()(3) * 3; // * 3 for scaling
+
+          // Adjust waypoints
+          ptsx[0] -= 2 * wp;
+          ptsx[1] -= 4 * wp;
+          ptsx[2] -= 6 * wp;
+          ptsx[3] -= 6 * wp;
+          ptsx[4] -= 4 * wp;
+          ptsx[5] -= 2 * wp;
 
           // Transform
           vector<double> ptsx_transformed;
@@ -381,7 +374,7 @@ int main() {
 
           // Calculate steering angle and throttle using MPC.
           // Both are in between [-1, 1].
-          auto actuation = mpc.Solve(state, coeffs, car_position);
+          auto actuation = mpc.Solve(state, coeffs);
 
           // Don't make me use the CLAMPS!
           // Divide by deg2rad(25) before you send the steering value back.
