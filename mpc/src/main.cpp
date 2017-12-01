@@ -11,6 +11,7 @@
 
 #include <tensorflow/cc/client/client_session.h>
 #include <tensorflow/cc/ops/standard_ops.h>
+#include <tensorflow/cc/ops/image_ops.h>
 #include <tensorflow/core/framework/tensor.h>
 #include <tensorflow/core/public/session.h>
 #include <tensorflow/core/platform/env.h>
@@ -43,6 +44,52 @@ static Status ReadEntireFile(tensorflow::Env* env, const string& filename, Tenso
   return Status::OK();
 }
 
+// Given an image, try to decode it as an image, resize it to the requested size, and then scale the values as desired.
+Status ReadTensorFromImageString(const string& image, const int input_height, const int input_width, 
+                                 const float input_mean, const float input_std,
+                                 std::vector<Tensor>* out_tensors) {
+  auto root = tensorflow::Scope::NewRootScope();
+  using namespace ::tensorflow::ops;
+
+  // Copy into a tensor named input
+  Tensor input(tensorflow::DT_STRING, tensorflow::TensorShape());
+  input.scalar<string>()() = image;
+
+  // Use a placeholder to read input data
+  auto input_string_placeholder = Placeholder(root.WithOpName("input"), tensorflow::DataType::DT_STRING);
+
+  // Create input Tensors (just the one)
+  std::vector<std::pair<string, tensorflow::Tensor>> inputs = { {"input", input}, };
+
+  // Decode it
+  tensorflow::Output image_reader = DecodeJpeg(root.WithOpName("jpeg_reader"), input_string_placeholder, DecodeJpeg::Channels(3));
+
+  // Now cast the image data to float so we can do normal math on it.
+  auto float_caster = Cast(root.WithOpName("float_caster"), image_reader, tensorflow::DT_FLOAT);
+
+  // The convention for image ops in TensorFlow is that all images are expected
+  // to be in batches, so that they're four-dimensional arrays with indices of
+  // [batch, height, width, channel]. Because we only have a single image, we
+  // have to add a batch dimension of 1 to the start with ExpandDims().
+  auto dims_expander = ExpandDims(root, float_caster, 0);
+
+  // Bilinearly resize the image to fit the required dimensions
+  auto resized = ResizeBilinear(root, dims_expander, Const(root.WithOpName("size"), {input_height, input_width}));
+
+  // Subtract the mean and divide by the scale
+  string output_name = "normalized";
+  Div(root.WithOpName(output_name), Sub(root, resized, {input_mean}), {input_std});
+
+  // This runs the GraphDef network definition that we've just constructed, and returns the results in the output tensor
+  tensorflow::GraphDef graph;
+  TF_RETURN_IF_ERROR(root.ToGraphDef(&graph));
+  std::unique_ptr<tensorflow::Session> session(tensorflow::NewSession(tensorflow::SessionOptions()));
+  TF_RETURN_IF_ERROR(session->Create(graph));
+  TF_RETURN_IF_ERROR(session->Run({inputs}, {output_name}, {}, out_tensors));
+  return Status::OK();
+}
+
+
 // Given an image file name, read in the data, try to decode it as an image,
 // resize it to the requested size, and then scale the values as desired.
 Status ReadTensorFromImageFile(const string& file_name, const int input_height,
@@ -52,7 +99,6 @@ Status ReadTensorFromImageFile(const string& file_name, const int input_height,
   auto root = tensorflow::Scope::NewRootScope();
   using namespace ::tensorflow::ops;  // NOLINT(build/namespaces)
 
-  string input_name = "file_reader";
   string output_name = "normalized";
 
   // read file_name into a tensor named input
@@ -116,21 +162,24 @@ Status LoadGraph(const string& graph_file_name, std::unique_ptr<tensorflow::Sess
   return Status::OK();
 }
 
-std::vector<Tensor> run_image(Session* session, const string& filename) {
+std::vector<Tensor> run_image(Session* session, const string& jpg) {
 
   int32 input_width = 320;
   int32 input_height = 160;
   float input_mean = 0;
   float input_std = 255;
 
-  // Setup inputs and outputs:
-  // Get the image from disk as a float array of numbers, resized and normalized
-  // to the specifications the main graph expects.
+  // Set up outputs
   std::vector<Tensor> resized_tensors;
-  string image_path = tensorflow::io::JoinPath("", filename);
+
+/*  string image_path = tensorflow::io::JoinPath("", filename);
   Status read_tensor_status = ReadTensorFromImageFile(image_path, input_height, input_width, input_mean, input_std, &resized_tensors);
   if (!read_tensor_status.ok()) {
     LOG(ERROR) << read_tensor_status;
+  }*/
+  Status status = ReadTensorFromImageString(jpg, input_height, input_width, input_mean, input_std, &resized_tensors);
+  if (!status.ok()) {
+    LOG(ERROR) << status;
   }
   const Tensor& resized_tensor = resized_tensors[0];
 
@@ -138,51 +187,11 @@ std::vector<Tensor> run_image(Session* session, const string& filename) {
   string input_layer = "cropping2d_1_input";
   string output_layer = "output_0";
   std::vector<Tensor> outputs;
-  Status status = session->Run({{input_layer, resized_tensor}}, {output_layer}, {}, &outputs);
+  status = session->Run({{input_layer, resized_tensor}}, {output_layer}, {}, &outputs);
 
   return outputs;
 }
 
-
-int main() {
-  using namespace tensorflow;
-  using namespace tensorflow::ops;
-
-  // Initialize a tensorflow session
-  Session* session;
-  Status status = NewSession(SessionOptions(), &session);
-  if (!status.ok()) {
-    std::cout << status.ToString() << "\n";
-    return 1;
-  }
-
-  const string& graph_file_name = "graph.pb";
-  tensorflow::GraphDef graph_def;
-  Status load_graph_status = ReadBinaryProto(tensorflow::Env::Default(), graph_file_name, &graph_def);
-  if (!load_graph_status.ok()) {
-    printf("Failed to load compute graph");
-  }
-
-  // Add the graph to the session
-  status = session->Create(graph_def);
-  if (!status.ok()) {
-    std::cout << status.ToString() << "\n";
-    return 1;
-  }
-
-  // Run a clear image
-  std::vector<Tensor> outputs = run_image(session, "image.jpg");
-  std::cout << outputs[0].DebugString() << "\n";
-
-  // Run obstacle image
-  std::vector<Tensor> outputs2 = run_image(session, "image2.jpg");
-  std::cout << outputs2[0].DebugString() << "\n";
-
-  // Free any resources used by the session
-  status = session->Close();
-
-  return 0;
-}
 
 // for convenience
 using json = nlohmann::json;
@@ -239,19 +248,64 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order)
   return result;
 }
 
-int maina() {
+static std::string base64_decode(const std::string &in) {
+
+    std::string out;
+
+    std::vector<int> T(256,-1);
+    for (int i=0; i<64; i++) T["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[i]] = i; 
+
+    int val=0, valb=-8;
+    for (unsigned char c : in) {
+        if (T[c] == -1) break;
+        val = (val<<6) + T[c];
+        valb += 6;
+        if (valb>=0) {
+            out.push_back(char((val>>valb)&0xFF));
+            valb-=8;
+        }
+    }
+    return out;
+}
+
+int main() {
   uWS::Hub h;
 
-  // MPC is initialized here!
   MPC mpc;
 
-  h.onMessage([&mpc](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  using namespace tensorflow;
+  using namespace tensorflow::ops;
+
+  // Initialize a tensorflow session
+  Session* session;
+  Status status = NewSession(SessionOptions(), &session);
+  if (!status.ok()) {
+    std::cout << status.ToString() << "\n";
+    return 1;
+  }
+
+  const string& graph_file_name = "graph.pb";
+  tensorflow::GraphDef graph_def;
+  Status load_graph_status = ReadBinaryProto(tensorflow::Env::Default(), graph_file_name, &graph_def);
+  if (!load_graph_status.ok()) {
+    printf("Failed to load compute graph");
+  }
+
+  // Add the graph to the session
+  status = session->Create(graph_def);
+  if (!status.ok()) {
+    std::cout << status.ToString() << "\n";
+    return 1;
+  }
+
+
+  h.onMessage([&mpc, &session](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
     string sdata = string(data).substr(0, length);
-    cout << sdata << endl;
+//    cout << sdata << endl;
     if (sdata.size() > 2 && sdata[0] == '4' && sdata[1] == '2') {
       string s = hasData(sdata);
       if (s != "") {
@@ -266,11 +320,6 @@ int maina() {
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
 
-          // Get image
-//          imgString = j[1]["image"];
-//          image = Image.open(BytesIO(base64.b64decode(imgString)))
-//          image_array = np.asarray(image)
-//          steering_angle = float(model.predict(image_array[None, :, :, :], batch_size=1))
 
           int car_position = (int)-px;
 
@@ -283,6 +332,23 @@ int maina() {
             ptsx[4] -= 4;
             ptsx[5] -= 2;
           }
+
+          // Get image
+          const string imgString = base64_decode(j[1]["image"]);
+//          printf("Image: %s", imgString.c_str());
+
+//          image = Image.open(BytesIO(base64.b64decode(imgString)))
+//          image_array = np.asarray(image)
+//          steering_angle = float(model.predict(image_array[None, :, :, :], batch_size=1))
+
+          // Run a clear image
+          std::vector<Tensor> outputs = run_image(session, imgString);
+          std::cout << outputs[0].DebugString() << "\n";
+//          std::cout << outputs[0] << "  " << outputs[0] << "\n";
+
+          // Run obstacle image
+//          std::vector<Tensor> outputs2 = run_image(session, "image2.jpg");
+//          std::cout << outputs2[0].DebugString() << "\n";
 
           // Transform
           vector<double> ptsx_transformed;
@@ -365,7 +431,7 @@ int maina() {
           // around the track with 100ms latency.
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE SUBMITTING.
-          //this_thread::sleep_for(chrono::milliseconds(100));
+          this_thread::sleep_for(chrono::milliseconds(100));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {
@@ -407,5 +473,9 @@ int maina() {
     return -1;
   }
   h.run();
+
+  // Free any resources used by the session
+//  status = session->Close();
+
   return 0;
 }

@@ -64,15 +64,10 @@ class FG_eval {
     // + Crosstrack error ^2
     // + Error psi angle ^2
     // + Velocity below target speed ^2
-    printf( "Car position: %d\n", (int)car_position );
+    //printf( "Car position: %d\n", (int)car_position );
 
     for (int t = 0; t < N; t++) {
-//      if( car_position + t > 70 && car_position + t < 73 ) {
-//        fg[0] -= 30 * CppAD::pow(vars[cte_start + t], 2);
-//      }
-//      else {
-        fg[0] += COST_CROSSTRACK_ERROR * CppAD::pow(vars[cte_start + t], 2);        
-//      }
+      fg[0] += COST_CROSSTRACK_ERROR * CppAD::pow(vars[cte_start + t], 2);
       fg[0] += COST_ANGLE_ERROR * CppAD::pow(vars[epsi_start + t], 2);
       fg[0] += COST_SPEED_ERROR * CppAD::pow(vars[v_start + t] - ref_v, 2);
     }

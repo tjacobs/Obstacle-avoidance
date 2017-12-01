@@ -14,7 +14,7 @@ train_data_dir = 'train'
 validation_data_dir = 'validation'
 nb_train_samples = 1000
 nb_validation_samples = 100
-epochs = 3
+epochs = 10
 batch_size = 30
 
 # Compile
@@ -54,23 +54,30 @@ validation_generator = validation_datagen.flow_from_directory(
     batch_size=batch_size,
     class_mode='categorical')
 
-def batch_generator():
+def batch_generator(generator):
     while True:
-        image, category = train_generator.next()
-        yield(image, [category, (np.array([[0,0,0,0,0]]*category.shape[0]))])
+        images, classifications = generator.next()
 
-def batch_val_generator():
-    while True:
-        image, category = validation_generator.next()
-        yield(image, [category, (np.array([[0,0,0,0,0]]*category.shape[0]))])
+        waypoints = []
+        for classification in classifications:
+            # Clear road
+            if classification[0] == 1:
+                waypoints.append([0,0,0,0,0])
+            # Obstacle road
+            else:
+                waypoints.append([0.0,0.1,0.3,0.5,0.2])
 
-i = 0
-for sample in batch_generator():
-#    print(sample)
-#    imsave('img' + str(i) + '.jpg', sample[0][0]) # First sample of the batch, first image
-    i += 1
-    if i > 2:
-        break
+        # Yield  image, [ [1, 0], [waypoints] ]
+        yield(images, [classifications, np.array(waypoints)])
+#        yield(image, [category, (np.array([waypoints]*category.shape[0]))])
+
+# i = 0
+# for sample in batch_generator(train_generator):
+#     print(sample)
+# #    imsave('img' + str(i) + '.jpg', sample[0][0]) # First sample of the batch, first image
+#     i += 1
+#     if i > 2:
+#         break
 
 
 # Callbacks
@@ -80,9 +87,9 @@ callbacks = []#[checkpoint, lr_reducer]
 
 # Train
 model.fit_generator(
-    batch_generator(),
+    batch_generator(train_generator),
     steps_per_epoch = nb_train_samples // batch_size,
-    validation_data = batch_val_generator(),
+    validation_data = batch_generator(validation_generator),
     validation_steps = nb_validation_samples // batch_size,
     epochs=epochs,
     callbacks=callbacks)
