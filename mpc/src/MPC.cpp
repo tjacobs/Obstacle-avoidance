@@ -43,8 +43,6 @@ size_t epsi_start = cte_start + N;
 size_t delta_start = epsi_start + N;  // These two are special.
 size_t a_start = delta_start + N - 1; // They are the steering and acceleration output.
 
-int car_position = 0;
-
 class FG_eval {
  public:
   // Fitted polynomial coefficients
@@ -64,7 +62,6 @@ class FG_eval {
     // + Crosstrack error ^2
     // + Error psi angle ^2
     // + Velocity below target speed ^2
-    //printf( "Car position: %d\n", (int)car_position );
 
     for (int t = 0; t < N; t++) {
       fg[0] += COST_CROSSTRACK_ERROR * CppAD::pow(vars[cte_start + t], 2);
@@ -154,11 +151,9 @@ class FG_eval {
 MPC::MPC() {}
 MPC::~MPC() {}
 
-vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs, int car_position_in) {
+vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   bool ok = true;
   typedef CPPAD_TESTVECTOR(double) Dvector;
-
-  car_position = car_position_in;
 
   // Set the number of model variables (includes both states and inputs).
   size_t n_vars = N * 6 + (N - 1) * 2;

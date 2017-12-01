@@ -39,9 +39,9 @@ def WaypointsModel():
     x = Dense(400, activation='relu')(x)
     x = Dense(100, activation='relu')(x)
     x = Dense(50, activation='relu')(x)
-    x = Dense(10, activation='relu')(x)
+    x = Dense(30, activation='relu')(x)
     output1 = Dense(2, activation='softmax', name='output1')(x)
-    output2 = Dense(5, name='output2')(x)
+    output2 = Dense(5, activation='relu', name='output2')(x)
 
     # Create
     model = Model(inputs=main_input, outputs=[output1, output2])

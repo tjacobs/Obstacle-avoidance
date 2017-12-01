@@ -29,14 +29,9 @@ SOFTWARE.
 import os
 import os.path as osp
 import argparse
-
 import tensorflow as tf
-
 from keras.models import load_model
 from keras import backend as K
-
-
-
 
 def convertGraph( modelPath, outdir, numoutputs, prefix, name):
     '''
@@ -85,11 +80,11 @@ def convertGraph( modelPath, outdir, numoutputs, prefix, name):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model','-m', dest='model', required=True, help='REQUIRED: The HDF5 Keras model you wish to convert to .pb')
-    parser.add_argument('--numout','-n', type=int, dest='num_out', required=True, help='REQUIRED: The number of outputs in the model.')
-    parser.add_argument('--outdir','-o', dest='outdir', required=False, default='./', help='The directory to place the output files - default("./")')
-    parser.add_argument('--prefix','-p', dest='prefix', required=False, default='k2tfout', help='The prefix for the output aliasing - default("k2tfout")')
-    parser.add_argument('--name', dest='name', required=False, default='output_graph.pb', help='The name of the resulting output graph - default("output_graph.pb")')
+    parser.add_argument('--model','-m', dest='model', required=False, default='detect_model.h5', help='The HDF5 Keras model you wish to convert to .pb')
+    parser.add_argument('--numout','-n', type=int, dest='num_out', required=False, default=2, help='The number of outputs in the model.')
+    parser.add_argument('--outdir','-o', dest='outdir', required=False, default='./mpc/', help='The directory to place the output files - default("./")')
+    parser.add_argument('--prefix','-p', dest='prefix', required=False, default='output', help='The prefix for the output aliasing - default("k2tfout")')
+    parser.add_argument('--name', dest='name', required=False, default='graph.pb', help='The name of the resulting output graph - default("output_graph.pb")')
     args = parser.parse_args()
 
     convertGraph( args.model, args.outdir, args.num_out, args.prefix, args.name )
